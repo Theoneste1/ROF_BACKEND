@@ -16,7 +16,7 @@ services:
       - key: TRUST_PROXY
         value: "true"
       - key: CORS_ORIGINS
-        value: https://rwandamathcompetition.netlify.app
+        value: https://rwandamathcompetition.netlify.app,https://math.rwandaolympiadfoundation.org
       - key: DATABASE_URL
         sync: false
       - key: DATABASE_SSL_CA

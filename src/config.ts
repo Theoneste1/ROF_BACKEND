@@ -1,6 +1,6 @@
 import "dotenv/config";
 
-import { DEFAULT_ORIGIN_PATTERNS } from "./cors.js";
+import { DEFAULT_ORIGINS, DEFAULT_ORIGIN_PATTERNS } from "./cors.js";
 
 export interface Config {
   nodeEnv: string;
@@ -33,7 +33,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const jwtSecret = need("JWT_SECRET");
   if (missing.length) throw new Error(`Missing required environment variables: ${missing.join(", ")}`);
   if (jwtSecret.length < 32) throw new Error("JWT_SECRET must be at least 32 characters.");
-  const corsOrigins = (env.CORS_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const extraOrigins = (env.CORS_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const corsOrigins = [...new Set([...DEFAULT_ORIGINS, ...extraOrigins])];
   const corsOriginPatterns = env.CORS_ORIGIN_PATTERNS === undefined
     ? DEFAULT_ORIGIN_PATTERNS
     : env.CORS_ORIGIN_PATTERNS.split(",").map((s) => s.trim()).filter(Boolean);

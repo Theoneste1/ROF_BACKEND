@@ -9,6 +9,9 @@
  * This is not an authentication mechanism: the API uses bearer tokens (never cookies), admin routes still need a valid token,
  * and anyone can call the public endpoints directly without a browser. CORS only decides which web pages may read responses.
  */
+/** The registration website's addresses (always allowed; CORS_ORIGINS adds more). */
+export const DEFAULT_ORIGINS = ["https://rwandamathcompetition.netlify.app", "https://math.rwandaolympiadfoundation.org"];
+
 export const DEFAULT_ORIGIN_PATTERNS = ["https://*--rwandamathcompetition.netlify.app"];
 
 const escapeRegex = (s: string) => s.replace(/[.+?^${}()|[\]\\]/g, "\\$&");

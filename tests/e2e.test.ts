@@ -126,7 +126,7 @@ describe("configuration", () => {
   const ok = { DATABASE_URL: "postgres://x", JWT_SECRET: "x".repeat(32) };
   it("loads valid config with safe defaults", () => {
     const c = loadConfig({ ...ok } as any);
-    expect(c).toMatchObject({ port: 8787, corsOrigins: [], trustProxy: false, databaseSsl: false });
+    expect(c).toMatchObject({ port: 8787, corsOrigins: ["https://rwandamathcompetition.netlify.app", "https://math.rwandaolympiadfoundation.org"], trustProxy: false, databaseSsl: false });
   });
   it("requires DATABASE_URL and a strong JWT_SECRET", () => {
     expect(() => loadConfig({} as any)).toThrow(/DATABASE_URL, JWT_SECRET/);

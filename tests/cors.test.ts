@@ -3,12 +3,13 @@ import { DEFAULT_ORIGIN_PATTERNS, isAllowedOrigin, patternToRegex } from "../src
 import { loadConfig } from "../src/config.js";
 import { makeApp } from "./helpers.js";
 
-const policy = { origins: ["https://rwandamathcompetition.netlify.app"], patterns: DEFAULT_ORIGIN_PATTERNS, allowLocalhost: true };
+const policy = { origins: ["https://rwandamathcompetition.netlify.app", "https://math.rwandaolympiadfoundation.org"], patterns: DEFAULT_ORIGIN_PATTERNS, allowLocalhost: true };
 const allowed = (o: string | undefined, p = policy) => isAllowedOrigin(o, p);
 
 describe("origin policy", () => {
   it("allows the production site and requests with no Origin header (curl, server-to-server)", () => {
     expect(allowed("https://rwandamathcompetition.netlify.app")).toBe(true);
+    expect(allowed("https://math.rwandaolympiadfoundation.org")).toBe(true);
     expect(allowed(undefined)).toBe(true);
   });
 
@@ -32,7 +33,7 @@ describe("origin policy", () => {
     "http://x--rwandamathcompetition.netlify.app",              // wrong scheme
     "https://x--rwandamathcompetition-netlify-app.evil.com",
     "http://localhost.evil.com", "http://localhost:8080.evil.com", "http://127.0.0.1.evil.com", "http://localhost:99999999",
-    "https://anything.netlify.app", "null", "file://", "",
+    "https://anything.netlify.app", "https://rwandaolympiadfoundation.org", "https://math.rwandaolympiadfoundation.org.evil.com", "https://evilmath.rwandaolympiadfoundation.org", "http://math.rwandaolympiadfoundation.org", "null", "file://", "",
   ])("blocks %j", (o) => expect(allowed(o || "x://")).toBe(false));
 
   it("localhost can be switched off and patterns can be emptied", () => {

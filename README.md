@@ -37,7 +37,7 @@ No Postgres installed? `npm run dev:db` serves a throw-away in-memory Postgres o
 | `DATABASE_URL` | yes | Server-side Postgres connection string. Never the Supabase anon key. |
 | `JWT_SECRET` | yes | ≥ 32 random characters. `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"` |
 | `DATABASE_SSL` | no | Defaults to `true` in production, `false` otherwise. |
-| `CORS_ORIGINS` | yes in prod | Comma-separated exact browser origins (the Netlify site, any admin UI). `*` is refused in production. |
+| `CORS_ORIGINS` | no | Extra exact browser origins (any admin UI). The two website addresses, `https://rwandamathcompetition.netlify.app` and `https://math.rwandaolympiadfoundation.org`, are always allowed. `*` is refused in production. |
 | `CORS_ORIGIN_PATTERNS` | no | Wildcard origins, `*` = one DNS label. Default `https://*--rwandamathcompetition.netlify.app` (this site's Netlify deploy previews and branch deploys). Empty disables. |
 | `CORS_ALLOW_LOCALHOST` | no | Default `true`: `http(s)://localhost`, `127.0.0.1` and `[::1]` on any port may call the API (local development). CORS is not authentication: admin routes still need a token. |
 | `TRUST_PROXY` | no | `true` behind a proxy/PaaS so rate limiting sees the real client IP. |
