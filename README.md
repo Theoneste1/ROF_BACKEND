@@ -43,7 +43,7 @@ No Postgres installed? `npm run dev:db` serves a throw-away in-memory Postgres o
 | `TRUST_PROXY` | no | `true` behind a proxy/PaaS so rate limiting sees the real client IP. |
 | `PORT`, `HOST` | no | Default `8787`, `0.0.0.0`. |
 | `JWT_TTL_SECONDS` | no | Default 7200. |
-| `PUBLIC_RATE_LIMIT_MAX` / `_WINDOW_MS` | no | Public submissions per IP; default 10 per 10 min. |
+| `PUBLIC_RATE_LIMIT_MAX` / `_WINDOW_MS` | no | Public submissions per IP; default 30 per 10 min (mobile carriers and school labs share addresses, so this is deliberately not tiny). |
 | `LOGIN_RATE_LIMIT_MAX` | no | Login attempts per IP per minute; default 10. |
 
 Secrets live only in the server environment. `.env` is git-ignored.

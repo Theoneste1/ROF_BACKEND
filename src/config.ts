@@ -55,7 +55,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     corsOriginPatterns,
     corsAllowLocalhost: env.CORS_ALLOW_LOCALHOST !== "false",
     trustProxy: env.TRUST_PROXY === "true",
-    publicRateLimitMax: Number(env.PUBLIC_RATE_LIMIT_MAX ?? 10),
+    publicRateLimitMax: Number(env.PUBLIC_RATE_LIMIT_MAX ?? 30),
     publicRateLimitWindowMs: Number(env.PUBLIC_RATE_LIMIT_WINDOW_MS ?? 10 * 60 * 1000),
     loginRateLimitMax: Number(env.LOGIN_RATE_LIMIT_MAX ?? 10),
   };
