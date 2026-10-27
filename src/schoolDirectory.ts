@@ -7,6 +7,9 @@ import { SCHOOL_TYPES } from "./validation.js";
  * Columns (header row required, any order): school_name, province, district, plus optional
  * sector, cell, school_code, school_type. A row without a sector is a district-level entry (offered for
  * every sector of that district). Codes are digits (as on the form) and kept as text.
+ *
+ * The existing directory is read once and every decision is made in memory; new rows are inserted in batches.
+ * (One query per row is unusably slow against a remote database such as Supabase.)
  */
 export interface DirectoryImportReport {
   total: number; created: number; updated: number; unchanged: number; skipped: { line: number; reason: string }[];
@@ -14,8 +17,15 @@ export interface DirectoryImportReport {
 
 interface Existing {
   id: string; name: string; school_code: string | null; school_type: string | null;
-  district_id: string; sector_id: string | null; cell_id: string | null;
+  district_id: string; sector_id: string | null; cell_id: string | null; name_normalized: string;
 }
+interface NewRow {
+  code: string | null; codeKey: string | null; name: string; nameKey: string; type: string | null;
+  districtId: string; sectorId: string | null; cellId: string | null;
+}
+
+const BATCH = 500;
+const placeKey = (district: string, sector: string | null, cell: string | null, nameKey: string) => `${district}|${sector ?? ""}|${cell ?? ""}|${nameKey}`;
 
 export async function importSchoolDirectoryCsv(
   db: Db, locations: LocationService, csv: string, source: string, apply: boolean,
@@ -32,7 +42,17 @@ export async function importSchoolDirectoryCsv(
     return v === "" ? null : v;
   };
 
+  // Read the current directory once.
+  const existing = (await db.query<Existing>(
+    "SELECT id, name, name_normalized, school_code, school_type, district_id, sector_id, cell_id FROM school_directory")).rows;
+  const byCode = new Map(existing.filter((e) => e.school_code).map((e) => [e.school_code!.toLowerCase(), e]));
+  const byPlace = new Map(existing.filter((e) => !e.school_code).map((e) => [placeKey(e.district_id, e.sector_id, e.cell_id, e.name_normalized), e]));
+
   const seenCodes = new Set<string>();
+  const seenPlaces = new Set<string>();
+  const inserts: NewRow[] = [];
+  const updates: { id: string; row: NewRow }[] = [];
+
   for (let n = 1; n < rows.length; n++) {
     const r = rows[n]!, line = n + 1;
     const name = col(r, "school_name");
@@ -53,48 +73,51 @@ export async function importSchoolDirectoryCsv(
 
     const code = col(r, "school_code");
     if (code !== null && !/^\d{1,20}$/.test(code)) { report.skipped.push({ line, reason: "school_code must be digits only" }); continue; }
-    if (code !== null) {
-      if (seenCodes.has(code.toLowerCase())) { report.skipped.push({ line, reason: "duplicate school_code in file" }); continue; }
-      seenCodes.add(code.toLowerCase());
+    const codeKey = code?.toLowerCase() ?? null;
+    if (codeKey !== null) {
+      if (seenCodes.has(codeKey)) { report.skipped.push({ line, reason: "duplicate school_code in file" }); continue; }
+      seenCodes.add(codeKey);
     }
     const typeRaw = col(r, "school_type");
     const type = typeRaw && (SCHOOL_TYPES as readonly string[]).includes(typeRaw) ? typeRaw : null;
     const nameKey = normKey(name);
+    const row: NewRow = { code, codeKey, name, nameKey, type, districtId: place.district_id, sectorId: place.sector_id, cellId: place.cell_id };
 
-    // Match an existing entry by code when there is one, otherwise by place + name.
-    const existing = (await db.query<Existing>(
-      code !== null
-        ? "SELECT id, name, school_code, school_type, district_id, sector_id, cell_id FROM school_directory WHERE school_code_normalized = $1"
-        : `SELECT id, name, school_code, school_type, district_id, sector_id, cell_id FROM school_directory
-           WHERE district_id = $1 AND sector_id IS NOT DISTINCT FROM $2 AND cell_id IS NOT DISTINCT FROM $3 AND name_normalized = $4`,
-      code !== null ? [code.toLowerCase()] : [place.district_id, place.sector_id, place.cell_id, nameKey])).rows[0];
-
-    if (existing) {
-      const same = existing.name === name && existing.district_id === place.district_id && existing.sector_id === place.sector_id
-        && existing.cell_id === place.cell_id && existing.school_type === type && (code === null || existing.school_code === code);
-      if (same) { report.unchanged++; continue; }
-      if (apply) {
-        await db.query(
-          `UPDATE school_directory SET name=$2, name_normalized=$3, district_id=$4, sector_id=$5, cell_id=$6, school_type=$7,
-             school_code = COALESCE($8, school_code), school_code_normalized = COALESCE($9, school_code_normalized), source=$10, is_active=true
-           WHERE id=$1`,
-          [existing.id, name, nameKey, place.district_id, place.sector_id, place.cell_id, type, code, code?.toLowerCase() ?? null, source]);
-      }
-      report.updated++;
+    const match = codeKey !== null ? byCode.get(codeKey) : byPlace.get(placeKey(place.district_id, place.sector_id, place.cell_id, nameKey));
+    if (match) {
+      const same = match.name === name && match.district_id === place.district_id && match.sector_id === place.sector_id
+        && match.cell_id === place.cell_id && match.school_type === type && (code === null || match.school_code === code);
+      if (same) report.unchanged++; else { updates.push({ id: match.id, row }); report.updated++; }
       continue;
     }
-    if (apply) {
-      try {
-        await db.query(
-          `INSERT INTO school_directory (school_code, school_code_normalized, name, name_normalized, school_type, district_id, sector_id, cell_id, source)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-          [code, code?.toLowerCase() ?? null, name, nameKey, type, place.district_id, place.sector_id, place.cell_id, source]);
-      } catch (err) {
-        if ((err as { code?: string }).code === "23505") { report.skipped.push({ line, reason: "same school already listed in this place" }); continue; }
-        throw err;
-      }
+    if (codeKey === null) {
+      // Entries without a code are unique per place + name.
+      const pk = placeKey(place.district_id, place.sector_id, place.cell_id, nameKey);
+      if (seenPlaces.has(pk)) { report.skipped.push({ line, reason: "same school already listed in this place" }); continue; }
+      seenPlaces.add(pk);
     }
+    inserts.push(row);
     report.created++;
   }
+
+  if (!apply) return report;
+
+  await db.transaction(async (tx) => {
+    for (const { id, row } of updates) {
+      await tx.query(
+        `UPDATE school_directory SET name=$2, name_normalized=$3, district_id=$4, sector_id=$5, cell_id=$6, school_type=$7,
+           school_code = COALESCE($8, school_code), school_code_normalized = COALESCE($9, school_code_normalized), source=$10, is_active=true
+         WHERE id=$1`,
+        [id, row.name, row.nameKey, row.districtId, row.sectorId, row.cellId, row.type, row.code, row.codeKey, source]);
+    }
+    for (let i = 0; i < inserts.length; i += BATCH) {
+      const b = inserts.slice(i, i + BATCH);
+      await tx.query(
+        `INSERT INTO school_directory (school_code, school_code_normalized, name, name_normalized, school_type, district_id, sector_id, cell_id, source)
+         SELECT c, ck, n, nk, t, d, s, ce, $9 FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::uuid[], $7::uuid[], $8::uuid[]) AS u(c, ck, n, nk, t, d, s, ce)`,
+        [b.map((x) => x.code), b.map((x) => x.codeKey), b.map((x) => x.name), b.map((x) => x.nameKey), b.map((x) => x.type),
+          b.map((x) => x.districtId), b.map((x) => x.sectorId), b.map((x) => x.cellId), source]);
+    }
+  });
   return report;
 }

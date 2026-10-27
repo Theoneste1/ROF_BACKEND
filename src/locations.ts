@@ -21,34 +21,38 @@ export function loadDataset(): Dataset {
  * `code` and only renamed, never deleted, so registrations that reference them stay valid.
  */
 export async function seedLocations(db: Db, dataset = loadDataset()): Promise<{ provinces: number; districts: number; sectors: number; cells: number }> {
+  // Bulk upserts (one statement per level): thousands of single-row round trips are painfully slow against a remote database.
   return db.transaction(async (tx) => {
-    let d = 0, s = 0, c = 0;
-    for (const p of dataset.provinces) {
-      const pr = await tx.query<{ id: string }>(
-        `INSERT INTO provinces (code, name) VALUES ($1, $2)
-         ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name RETURNING id`, [p.code, p.name]);
-      const provinceId = pr.rows[0]!.id;
-      for (const dist of p.districts) {
-        const dr = await tx.query<{ id: string }>(
-          `INSERT INTO districts (code, province_id, name) VALUES ($1, $2, $3)
-           ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name RETURNING id`, [dist.code, provinceId, dist.name]);
-        d++;
-        const districtId = dr.rows[0]!.id;
-        for (const sec of dist.sectors) {
-          const sr = await tx.query<{ id: string }>(
-            `INSERT INTO sectors (code, district_id, name) VALUES ($1, $2, $3)
-             ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name RETURNING id`, [sec.code, districtId, sec.name]);
-          s++;
-          for (const cell of sec.cells ?? []) {
-            await tx.query(
-              `INSERT INTO cells (code, sector_id, name) VALUES ($1, $2, $3)
-               ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name`, [cell.code, sr.rows[0]!.id, cell.name]);
-            c++;
-          }
-        }
-      }
+    const idByCode = async (sql: string, params: unknown[]) =>
+      new Map((await tx.query<{ id: string; code: string }>(sql, params)).rows.map((r) => [r.code, r.id]));
+
+    const provs = dataset.provinces;
+    const provinceIds = await idByCode(
+      `INSERT INTO provinces (code, name) SELECT * FROM unnest($1::text[], $2::text[])
+       ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name RETURNING id, code`,
+      [provs.map((p) => p.code), provs.map((p) => p.name)]);
+
+    const dists = provs.flatMap((p) => p.districts.map((d) => ({ ...d, provinceId: provinceIds.get(p.code)! })));
+    const districtIds = await idByCode(
+      `INSERT INTO districts (code, province_id, name) SELECT * FROM unnest($1::text[], $2::uuid[], $3::text[])
+       ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name RETURNING id, code`,
+      [dists.map((d) => d.code), dists.map((d) => d.provinceId), dists.map((d) => d.name)]);
+
+    const sectors = dists.flatMap((d) => d.sectors.map((s) => ({ ...s, districtId: districtIds.get(d.code)! })));
+    const sectorIds = await idByCode(
+      `INSERT INTO sectors (code, district_id, name) SELECT * FROM unnest($1::text[], $2::uuid[], $3::text[])
+       ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name RETURNING id, code`,
+      [sectors.map((s) => s.code), sectors.map((s) => s.districtId), sectors.map((s) => s.name)]);
+
+    const cells = sectors.flatMap((s) => (s.cells ?? []).map((c) => ({ ...c, sectorId: sectorIds.get(s.code)! })));
+    for (let i = 0; i < cells.length; i += 1000) {
+      const chunk = cells.slice(i, i + 1000);
+      await tx.query(
+        `INSERT INTO cells (code, sector_id, name) SELECT * FROM unnest($1::text[], $2::uuid[], $3::text[])
+         ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name`,
+        [chunk.map((c) => c.code), chunk.map((c) => c.sectorId), chunk.map((c) => c.name)]);
     }
-    return { provinces: dataset.provinces.length, districts: d, sectors: s, cells: c };
+    return { provinces: provs.length, districts: dists.length, sectors: sectors.length, cells: cells.length };
   });
 }
 
