@@ -215,7 +215,7 @@ kept as raw text, and rows with an unrecognisable province/district or no school
 ## Testing
 
 ```bash
-npm test            # 9 files, 248 tests (PGlite = real PostgreSQL in WASM; no external services)
+npm test            # 9 files, 251 tests (PGlite = real PostgreSQL in WASM; no external services)
 npm run typecheck && npm run lint && npm run build
 ```
 
@@ -226,12 +226,29 @@ CSV export (leading zeros, formula injection), audit log, legacy import, config,
 ## Deployment
 
 The service is a plain Node process (`npm run build && npm start`) that needs Postgres reachable via `DATABASE_URL`. Netlify only hosts static
-sites, so run this on any Node host (Render, Fly.io, Railway, a VPS …) behind HTTPS, with `TRUST_PROXY=true`.
+sites, so run this on any Node host behind HTTPS. [`render.yaml`](render.yaml) is a ready Render Blueprint (use **one** instance: rate limiting is in-memory).
 
-1. **Staging first.** Create a separate Supabase project (or a branch/schema) — do not point staging at production data.
-2. Set env vars, run `npm run migrate`, create the edition and first admin, load the school directory (`import:schools`), import legacy data with `--apply` only after a clean dry run.
-3. Deploy the API, set `CORS_ORIGINS` to the site origin(s), verify `/health`.
-4. Follow [docs/frontend-integration.md](docs/frontend-integration.md) to switch the form over; keep the Google Sheet path until the new path is verified in production.
-5. Production: take a backup, run the same migration (it is additive only), repeat the checks.
+1. **Database (staging first).** Create a *separate* Supabase project. Copy the **Session pooler** connection string (the direct one is IPv6-only and often unreachable from hosts) and the project's SSL certificate (Project Settings → Database).
+2. **API.** Render → New → Blueprint → this repo. Enter the secrets it asks for: `DATABASE_URL`, `DATABASE_SSL_CA` (certificate text with line breaks written as `
+`; Node does not trust Supabase's CA by default) and `JWT_SECRET` (`node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`). `CORS_ORIGINS` is preset to the Netlify site.
+3. **Prepare the database** from your computer (a git-ignored `.env` with the same `DATABASE_URL`, `DATABASE_SSL=true`, `DATABASE_SSL_CA`, any 32+ character `JWT_SECRET`):
+   ```bash
+   npm run bootstrap -- --year 2026 --name "Rwanda Mathematics Olympiad 2026"   # migrations + locations + edition + 4,190 schools; re-runnable
+   npm run admin:create -- --email you@example.org --name "Your Name" --role super_admin   # asks for a password (hidden)
+   ```
+4. **Verify the live API** (read-only, writes nothing): `npm run smoke -- https://<your-api-url>`. Every line should say PASS.
+5. Switch the frontend using [docs/frontend-integration.md](docs/frontend-integration.md); keep the Google Sheet path until verified.
+6. **Production:** repeat with a separate production database, after a backup.
 
-Not done by this repository: hosting, DNS/HTTPS, Supabase credentials, running migrations against any real database, backups, monitoring, in-memory rate limiting is per-instance (use one instance, or add a shared store such as Redis, for multi-instance).
+### Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `self-signed certificate in certificate chain` | Set `DATABASE_SSL_CA` to Supabase's certificate (last resort: `DATABASE_SSL_REJECT_UNAUTHORIZED=false`, which encrypts but does not verify). |
+| `ENOTFOUND` / `ETIMEDOUT` / `ENETUNREACH` to the database | Use the **Session pooler** string, not the direct connection. |
+| Browser says "blocked by CORS" | Add the exact site origin (no trailing slash) to `CORS_ORIGINS`. |
+| Registration returns `409 registration_closed` | No open, current edition: run `npm run bootstrap`. |
+| `Missing required environment variables` at start | Set `DATABASE_URL` and `JWT_SECRET` (≥ 32 chars) on the host. |
+| `Migration … was modified after being applied` | Never edit an applied migration; add a new numbered file. |
+
+Not covered by this repository: hosting accounts, DNS, backups, monitoring.

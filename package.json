@@ -20,7 +20,9 @@
     "import:legacy": "tsx scripts/import-legacy.ts",
     "locations:seed": "tsx scripts/seed-locations.ts",
     "dev:db": "tsx scripts/dev-pg.ts",
-    "import:schools": "tsx scripts/import-schools.ts"
+    "import:schools": "tsx scripts/import-schools.ts",
+    "bootstrap": "tsx scripts/bootstrap.ts",
+    "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.1",
