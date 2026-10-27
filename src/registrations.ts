@@ -440,3 +440,30 @@ export async function searchDirectorySchools(db: Queryable, o: { sectorId: strin
     `SELECT id, name, school_code, school_type, sector_id, cell_id FROM school_directory WHERE ${where}
      ORDER BY (sector_id IS NULL), lower(name) LIMIT 500`, params)).rows;
 }
+
+// ---------------------------------------------------------------------------
+// Public list of registered schools (no personal data)
+// ---------------------------------------------------------------------------
+
+export interface PublicRegisteredSchool { school_code: string; school_name: string; district: string; student_count: number }
+
+/**
+ * One row per school for an edition: school code, name, district and the estimated student count from the school's most
+ * recent registration. Rejected and withdrawn registrations are excluded. Nothing else leaves the database, so this is
+ * safe to serve without authentication.
+ */
+export async function listPublicRegisteredSchools(db: Queryable, editionId: string) {
+  const rows = (await db.query<PublicRegisteredSchool>(
+    `SELECT school_code, school_name, district, student_count FROM (
+       SELECT DISTINCT ON (r.school_id) r.school_code, r.school_name, d.name AS district,
+              r.total_estimated_students AS student_count, r.created_at
+       FROM school_registrations r JOIN districts d ON d.id = r.district_id
+       WHERE r.competition_edition_id = $1 AND r.status NOT IN ('rejected','withdrawn')
+       ORDER BY r.school_id, r.created_at DESC
+     ) latest ORDER BY lower(school_name), school_code`, [editionId])).rows;
+  return {
+    total_schools: rows.length,
+    total_students: rows.reduce((sum, r) => sum + r.student_count, 0),
+    schools: rows,
+  };
+}

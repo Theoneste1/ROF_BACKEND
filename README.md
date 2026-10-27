@@ -155,6 +155,7 @@ Admin routes need `Authorization: Bearer <token>`.
 | `POST /api/school-registrations` | Submit a registration. `201` new / `200` replay → `{ message, replayed, registration: { id, registration_reference, status, total_estimated_students, competition_edition, created_at } }`. `422` with per-field `fields`; `409 registration_closed`; `409 idempotency_key_reused`; `429` rate-limited. A non-empty `website` field (honeypot) is silently dropped with `202`. |
 | `GET /api/locations` | Province → district → sector tree (ids + names) for dropdowns. |
 | `GET /api/locations/sectors/:sectorId/cells` | Cells of one sector. |
+| `GET /api/registered-schools` | Public list for the website's "Registered Schools" page: one row per school of the current edition (or `?edition_id=`) with `school_code`, `school_name`, `district`, `student_count` (latest registration; rejected/withdrawn excluded) plus totals. No personal data; cached 60 s; 60 requests/min per IP. Note it shows names as registrants typed them, so admins should reject abusive entries. |
 | `GET /api/schools` | School pick-list for a sector: schools recorded for it plus those known only at district level (+ optional `cell_id`, `q`); see the cascade section. |
 | `GET /api/competition-editions/current` | Current edition and whether registration is open. |
 | `GET /health` | Liveness + DB check. |
@@ -215,7 +216,7 @@ kept as raw text, and rows with an unrecognisable province/district or no school
 ## Testing
 
 ```bash
-npm test            # 9 files, 251 tests (PGlite = real PostgreSQL in WASM; no external services)
+npm test            # 10 files, 261 tests (PGlite = real PostgreSQL in WASM; no external services)
 npm run typecheck && npm run lint && npm run build
 ```
 

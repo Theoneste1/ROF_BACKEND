@@ -28,6 +28,12 @@ await check("school directory is loaded", async () => {
   const j = await json(await fetch(url(`/api/schools?sector_id=${sectorId}`)));
   expect(j.schools?.length > 0, "no schools returned (run npm run bootstrap)"); return `${j.schools.length} schools for a Gasabo sector`;
 });
+await check("public registered-schools list exposes only school code, name, district and student count", async () => {
+  const r = await fetch(url("/api/registered-schools")); expect(r.status === 200, `HTTP ${r.status}`);
+  const j = await json(r); expect(Array.isArray(j.schools), "no schools array");
+  for (const s of j.schools.slice(0, 200)) expect(Object.keys(s).sort().join() === "district,school_code,school_name,student_count", `unexpected fields: ${Object.keys(s)}`);
+  return `${j.total_schools} schools, ${j.total_students} students`;
+});
 await check("invalid registration is rejected with field errors (nothing saved)", async () => {
   const r = await fetch(url("/api/school-registrations"), { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   expect(r.status === 422, `HTTP ${r.status}`); const j = await json(r); expect(j.error?.fields?.head_teacher_email, "missing head_teacher_email error");

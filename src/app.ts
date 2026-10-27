@@ -16,7 +16,7 @@ import {
 } from "./validation.js";
 import {
   SORT_KEYS, UUID_RE, changeStatus, createRegistration, exportRows, findPotentialDuplicates, getRegistration,
-  listRegistrations, searchDirectorySchools, shapeRegistration, statistics, updateRegistration, type BankMode, type ListQuery,
+  listPublicRegisteredSchools, listRegistrations, searchDirectorySchools, shapeRegistration, statistics, updateRegistration, type BankMode, type ListQuery,
 } from "./registrations.js";
 import { toCsv, type CsvColumn } from "./csv.js";
 
@@ -67,7 +67,7 @@ export async function buildApp({ db, config, logger = false }: AppDeps): Promise
   });
 
   app.addHook("onSend", async (req, reply) => {
-    if (!req.url.startsWith("/api/locations") && !req.url.startsWith("/api/competition-editions")) {
+    if (!req.url.startsWith("/api/locations") && !req.url.startsWith("/api/competition-editions") && !req.url.startsWith("/api/registered-schools")) {
       reply.header("Cache-Control", "no-store");
     }
   });
@@ -139,6 +139,18 @@ export async function buildApp({ db, config, logger = false }: AppDeps): Promise
     if (cellId && !UUID_RE.test(cellId)) errors.cell_id = "cell_id must be a UUID.";
     if (Object.keys(errors).length) throw validationError(errors);
     return { schools: await searchDirectorySchools(db, { sectorId, cellId, q: search }), manual_entry_allowed: true };
+  });
+
+  // Public list for the "Registered Schools" page: school code, name, district, student count. No personal data.
+  app.get("/api/registered-schools", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (req, reply) => {
+    const raw = (req.query as Record<string, unknown>).edition_id;
+    if (raw !== undefined && !(typeof raw === "string" && UUID_RE.test(raw))) throw validationError({ edition_id: "edition_id must be a UUID." });
+    const edition = (await db.query<{ id: string; name: string; year: number }>(
+      raw ? "SELECT id, name, year FROM competition_editions WHERE id = $1" : "SELECT id, name, year FROM competition_editions WHERE is_current",
+      raw ? [raw] : [])).rows[0];
+    reply.header("Cache-Control", "public, max-age=60");
+    if (!edition) return { edition: null, total_schools: 0, total_students: 0, schools: [] };
+    return { edition: { name: edition.name, year: edition.year }, ...(await listPublicRegisteredSchools(db, edition.id)) };
   });
 
   app.get("/api/competition-editions/current", async (_req, reply) => {
