@@ -17,7 +17,6 @@
     "migrate": "tsx scripts/migrate.ts",
     "admin:create": "tsx scripts/create-admin.ts",
     "edition:create": "tsx scripts/create-edition.ts",
-    "import:legacy": "tsx scripts/import-legacy.ts",
     "locations:seed": "tsx scripts/seed-locations.ts",
     "dev:db": "tsx scripts/dev-pg.ts",
     "import:schools": "tsx scripts/import-schools.ts",

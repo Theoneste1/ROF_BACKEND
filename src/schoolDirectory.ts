@@ -1,6 +1,6 @@
 import type { Db } from "./db.js";
 import { LocationService, normKey } from "./locations.js";
-import { parseCsv } from "./legacyImport.js";
+import { parseCsv } from "./csvParse.js";
 import { SCHOOL_TYPES } from "./validation.js";
 
 /**

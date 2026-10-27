@@ -5,21 +5,16 @@ Backend API for the Rwanda Mathematics Olympiad school registration form
 
 Node 20+ · TypeScript · Fastify · PostgreSQL (Supabase-compatible). No frontend code lives here.
 
-> **Status:** implemented and tested locally. **Not deployed, not connected to the production Supabase
-> project, and the live form has not been switched over.** See [Deployment](#deployment) and
-> [docs/frontend-integration.md](docs/frontend-integration.md).
+> **Status:** deployed on Render and backed by Supabase PostgreSQL. The website's registration form and Registered Schools page
+> read and write only this API; there is no Google Sheet or Apps Script anywhere in the registration flow.
+> See [Deployment](#deployment) and [docs/frontend-integration.md](docs/frontend-integration.md).
 
 ## Why a standalone service
 
-Inspection of the production frontend (`olympiadProduction`, Vite + React on Netlify) found:
-
-- The form currently posts to a **Google Apps Script** that appends a row to a **Google Sheet**. Nothing is stored in a database.
-- Duplicate school codes are checked in the browser by reading the sheet's public CSV (the page fetches the whole sheet from the browser without credentials).
-- A Supabase project exists but only holds unrelated LMS tables (`users`, `problems`, …) and the browser uses its public anon key.
-
-So there was no registration backend to extend. This service stores registrations in PostgreSQL, keeps all
-secrets server-side, and the SQL migrations are plain PostgreSQL so they run unchanged on the existing Supabase
-database. Every object it creates has a distinct name, and it never alters existing tables.
+The website (`olympiadProduction`, Vite + React on Netlify) is static, so registrations need a server that validates them, keeps
+secrets (database credentials, JWT secret) out of the browser, and protects personal and bank data. This service stores
+registrations in PostgreSQL. The SQL migrations are plain PostgreSQL and every object they create has a distinct name, so they
+can share a Supabase project with other tables without altering them.
 
 ## Quick start (local)
 
@@ -82,7 +77,7 @@ Key decisions
 - **School code is unique on `schools`, never on registrations.** Same-edition repeats are *flagged*, not blocked.
 - `total_estimated_students` is a **generated column** (`p5_p6 + s1_s3 + s4_s5`); clients cannot set it.
 - Text everywhere for codes, phones, accounts → leading zeros survive.
-- Required fields are enforced by a CHECK for new rows (`is_legacy = false`); **legacy rows** imported from the Google Sheet may lack them (head teacher name/phone, split names) and are never filled with invented values. The original sheet row is kept verbatim in `legacy_raw`.
+- Required fields are enforced by a CHECK for new registrations (`is_legacy = false`, the default). The `is_legacy` and `legacy_raw` columns exist in the first migration but nothing uses them.
 - Head teacher (`head_teacher_*`), registering contact, maths teacher (`mathematics_teacher_*`), `test_delivery_email`, school bank and teacher bank are all separate columns.
 - **RLS is enabled on every table with no policies** and `anon`/`authenticated` privileges are revoked (when those Supabase roles exist), so the public Supabase API can read or write nothing here. Only this service, connecting with the owner/service role, touches the tables.
 - Location lists come from [`data/rwanda-locations.json`](data/rwanda-locations.json): 5 provinces, 30 districts, 416 sectors, 2,148 cells, with stable codes. It was generated from the MIT-licensed npm packages `rwanda-geo@1.4.6` and `rwanda-locations@1.2.2`; the two independent datasets agree exactly on every district's sector list and every sector's cell list, and the 30 districts match the live form. Re-seeding (`npm run locations:seed`) is idempotent and only renames by code, never deletes. Province spellings used by the form (`Kigali`, `Southern`, …) and official names (`Kigali City`, `Southern Province`) are both accepted.
@@ -201,28 +196,16 @@ Server-side validation of every field; parameterised SQL only; sort columns whit
 
 Retention / privacy (to be confirmed by ROF): registrations contain contact details of school staff and optional bank details. Suggested policy: keep registrations for the current and previous edition, then anonymise contact and bank columns for older editions via a reviewed migration; restrict `finance`/`super_admin` to named staff; rotate `JWT_SECRET` if a laptop with `.env` is lost.
 
-## Importing the historical Google Sheet
-
-```bash
-# export the sheet as CSV, then
-npm run import:legacy -- --file sheet.csv --edition 2025             # dry run: writes nothing
-npm run import:legacy -- --file sheet.csv --edition 2025 --apply     # write
-```
-
-Creates the `2025` edition first (`npm run edition:create -- --year 2025 --name "…"` without `--current`). Rows are tagged `is_legacy`,
-re-runnable (content-hash keyed), names stay as the single submitted string, head teacher name/phone stay empty, unrecognised sectors are
-kept as raw text, and rows with an unrecognisable province/district or no school code are skipped and reported. **Run it on staging first.**
-
 ## Testing
 
 ```bash
-npm test            # 10 files, 261 tests (PGlite = real PostgreSQL in WASM; no external services)
+npm test            # 10 files, 257 tests (PGlite = real PostgreSQL in WASM; no external services)
 npm run typecheck && npm run lint && npm run build
 ```
 
 Covers: schema/migrations/constraints/RLS, validation of every field, geography, registration create/retry/concurrency/rollback,
 auth & lockout & token attacks, RBAC, bank-data protection, search/filter/pagination/sort, duplicates, updates, status, statistics,
-CSV export (leading zeros, formula injection), audit log, legacy import, config, the production `pg` driver adapter over the wire, and a real-HTTP end-to-end flow.
+CSV export (leading zeros, formula injection), audit log, school-directory import, config, the production `pg` driver adapter over the wire, and a real-HTTP end-to-end flow.
 
 ## Deployment
 
@@ -238,7 +221,7 @@ sites, so run this on any Node host behind HTTPS. [`render.yaml`](render.yaml) i
    npm run admin:create -- --email you@example.org --name "Your Name" --role super_admin   # asks for a password (hidden)
    ```
 4. **Verify the live API** (read-only, writes nothing): `npm run smoke -- https://<your-api-url>`. Every line should say PASS.
-5. Switch the frontend using [docs/frontend-integration.md](docs/frontend-integration.md); keep the Google Sheet path until verified.
+5. The website is connected through [docs/frontend-integration.md](docs/frontend-integration.md).
 6. **Production:** repeat with a separate production database, after a backup.
 
 ### Troubleshooting

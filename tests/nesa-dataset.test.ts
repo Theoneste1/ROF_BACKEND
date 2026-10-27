@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createEdition, freshDb } from "./helpers.js";
 import { LocationService, loadDataset } from "../src/locations.js";
 import { importSchoolDirectoryCsv } from "../src/schoolDirectory.js";
-import { parseCsv } from "../src/legacyImport.js";
+import { parseCsv } from "../src/csvParse.js";
 
 const FILE = new URL("../data/school-directory.csv", import.meta.url);
 const NESA = new URL("../data/schools-nesa-2024-25.csv", import.meta.url);
