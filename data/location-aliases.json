@@ -1,0 +1,9 @@
+{
+ "_note": "Alternative spellings seen in official school lists, mapped to the canonical names in rwanda-locations.json. Keys are lower-case letters/digits only: district|sector or district|sector|cell.",
+ "sectors": {
+  "nyarugenge|mageregere": "Mageragere"
+ },
+ "cells": {
+  "kirehe|mahama|munini": "Umunini"
+ }
+}

@@ -1,0 +1,25 @@
+# Render Blueprint: Dashboard -> New -> Blueprint -> pick this repo.
+# Secrets (sync: false) are entered in the Render dashboard, never stored in git.
+services:
+  - type: web
+    name: rof-registration-api
+    runtime: node
+    plan: starter            # use ONE instance: rate limiting is in-memory
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "true"
+      - key: CORS_ORIGINS
+        value: https://rwandamathcompetition.netlify.app
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_SSL_CA
+        sync: false
+      - key: JWT_SECRET
+        sync: false

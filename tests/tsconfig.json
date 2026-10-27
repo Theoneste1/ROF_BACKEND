@@ -1,0 +1,12 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": false,
+    "rootDir": ".."
+  },
+  "include": [
+    "./**/*.ts",
+    "../src",
+    "../vitest.config.ts"
+  ]
+}
