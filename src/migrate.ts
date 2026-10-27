@@ -26,7 +26,8 @@ export async function runMigrations(db: Db, dir = migrationsDir()): Promise<stri
   const ran: string[] = [];
   for (const file of files) {
     const sql = fs.readFileSync(path.join(dir, file), "utf8");
-    const checksum = crypto.createHash("sha256").update(sql).digest("hex");
+    // Line endings must not change the checksum (CRLF on Windows checkouts vs LF on Linux hosts).
+    const checksum = crypto.createHash("sha256").update(sql.replace(/\r\n/g, "\n")).digest("hex");
     const prev = applied.get(file);
     if (prev) {
       if (prev !== checksum) throw new Error(`Migration ${file} was modified after being applied. Add a new migration instead.`);

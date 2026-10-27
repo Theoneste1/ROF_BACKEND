@@ -102,6 +102,16 @@ describe("migrations", () => {
     expect((await db.query("SELECT 1 FROM schema_migrations")).rowCount).toBe(0);
   });
 
+  it("treats CRLF and LF versions of the same migration as identical", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mig-"));
+    const lf = "CREATE TABLE a (id int);\nCREATE TABLE b (id int);\n";
+    fs.writeFileSync(path.join(dir, "001_a.sql"), lf);
+    const db = pgliteDb();
+    await runMigrations(db, dir);
+    fs.writeFileSync(path.join(dir, "001_a.sql"), lf.replace(/\n/g, "\r\n")); // same migration, Windows line endings
+    expect(await runMigrations(db, dir)).toEqual([]);
+  });
+
   it("migrations directory is resolvable", () => expect(fs.existsSync(migrationsDir())).toBe(true));
 
   it("does not touch pre-existing unrelated tables (shared Supabase project)", async () => {
