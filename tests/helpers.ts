@@ -25,7 +25,7 @@ export function pgliteDb(pg = new PGlite()): Db & { raw: PGlite } {
 export const testConfig = (over: Partial<Config> = {}): Config => ({
   nodeEnv: "test", port: 0, host: "127.0.0.1", databaseUrl: "unused", databaseSsl: false, databaseSslRejectUnauthorized: true,
   jwtSecret: "test-secret-test-secret-test-secret-123456", jwtTtlSeconds: 3600,
-  corsOrigins: ["https://rwandamathcompetition.netlify.app"], trustProxy: false,
+  corsOrigins: ["https://rwandamathcompetition.netlify.app"], corsOriginPatterns: ["https://*--rwandamathcompetition.netlify.app"], corsAllowLocalhost: true, trustProxy: false,
   publicRateLimitMax: 1000, publicRateLimitWindowMs: 60_000, loginRateLimitMax: 1000, ...over,
 });
 

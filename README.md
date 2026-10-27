@@ -37,7 +37,9 @@ No Postgres installed? `npm run dev:db` serves a throw-away in-memory Postgres o
 | `DATABASE_URL` | yes | Server-side Postgres connection string. Never the Supabase anon key. |
 | `JWT_SECRET` | yes | ≥ 32 random characters. `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"` |
 | `DATABASE_SSL` | no | Defaults to `true` in production, `false` otherwise. |
-| `CORS_ORIGINS` | yes in prod | Comma-separated browser origins (the Netlify site, any admin UI). `*` is refused in production. |
+| `CORS_ORIGINS` | yes in prod | Comma-separated exact browser origins (the Netlify site, any admin UI). `*` is refused in production. |
+| `CORS_ORIGIN_PATTERNS` | no | Wildcard origins, `*` = one DNS label. Default `https://*--rwandamathcompetition.netlify.app` (this site's Netlify deploy previews and branch deploys). Empty disables. |
+| `CORS_ALLOW_LOCALHOST` | no | Default `true`: `http(s)://localhost`, `127.0.0.1` and `[::1]` on any port may call the API (local development). CORS is not authentication: admin routes still need a token. |
 | `TRUST_PROXY` | no | `true` behind a proxy/PaaS so rate limiting sees the real client IP. |
 | `PORT`, `HOST` | no | Default `8787`, `0.0.0.0`. |
 | `JWT_TTL_SECONDS` | no | Default 7200. |
@@ -199,7 +201,7 @@ Retention / privacy (to be confirmed by ROF): registrations contain contact deta
 ## Testing
 
 ```bash
-npm test            # 10 files, 257 tests (PGlite = real PostgreSQL in WASM; no external services)
+npm test            # 11 files, 292 tests (PGlite = real PostgreSQL in WASM; no external services)
 npm run typecheck && npm run lint && npm run build
 ```
 
@@ -230,7 +232,7 @@ sites, so run this on any Node host behind HTTPS. [`render.yaml`](render.yaml) i
 |---|---|
 | `self-signed certificate in certificate chain` | Set `DATABASE_SSL_CA` to Supabase's certificate (last resort: `DATABASE_SSL_REJECT_UNAUTHORIZED=false`, which encrypts but does not verify). |
 | `ENOTFOUND` / `ETIMEDOUT` / `ENETUNREACH` to the database | Use the **Session pooler** string, not the direct connection. |
-| Browser says "blocked by CORS" | Add the exact site origin (no trailing slash) to `CORS_ORIGINS`. |
+| Browser says "blocked by CORS" / the form says it couldn't load the provinces | The page's origin is not allowed. `localhost`, `127.0.0.1` and this site's Netlify previews are allowed by default; for any other address add the exact origin (no trailing slash) to `CORS_ORIGINS`. |
 | Registration returns `409 registration_closed` | No open, current edition: run `npm run bootstrap`. |
 | `Missing required environment variables` at start | Set `DATABASE_URL` and `JWT_SECRET` (≥ 32 chars) on the host. |
 | `Migration … was modified after being applied` | Never edit an applied migration; add a new numbered file. |

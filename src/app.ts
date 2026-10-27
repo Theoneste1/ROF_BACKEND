@@ -6,6 +6,7 @@ import rateLimit from "@fastify/rate-limit";
 import type { Db } from "./db.js";
 import type { Config } from "./config.js";
 import { ApiError, validationError } from "./errors.js";
+import { isAllowedOrigin } from "./cors.js";
 import { LocationService } from "./locations.js";
 import { writeAudit, type Actor } from "./audit.js";
 import {
@@ -52,7 +53,7 @@ export async function buildApp({ db, config, logger = false }: AppDeps): Promise
 
   await app.register(helmet, { contentSecurityPolicy: { directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] } } });
   await app.register(cors, {
-    origin: (origin, cb) => cb(null, !origin || config.corsOrigins.includes(origin)),
+    origin: (origin, cb) => cb(null, isAllowedOrigin(origin, { origins: config.corsOrigins, patterns: config.corsOriginPatterns, allowLocalhost: config.corsAllowLocalhost })),
     methods: ["GET", "POST", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"],
     exposedHeaders: ["Content-Disposition", "Idempotent-Replayed"],
