@@ -78,8 +78,8 @@ describe("GET /api/registered-schools (public)", () => {
     const row = (await get("/api/registered-schools")).json().schools.find((s: any) => s.school_code === "555");
     expect(row).toEqual({ school_code: "555", school_name: "Legacy School", district: "Kicukiro", student_count: 0 });
   });
-  it("is cacheable by browsers and CDNs for a minute, unlike admin responses", async () => {
-    expect((await get("/api/registered-schools")).headers["cache-control"]).toBe("public, max-age=60");
+  it("is never served from a stale cache (a new registration must show up immediately); admin responses are not stored at all", async () => {
+    expect((await get("/api/registered-schools")).headers["cache-control"]).toBe("no-cache");
     expect((await app.inject({ method: "GET", url: "/api/school-registrations" })).headers["cache-control"]).toBe("no-store");
   });
   it("allows the website origin via CORS", async () => {

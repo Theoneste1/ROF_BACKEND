@@ -149,7 +149,8 @@ export async function buildApp({ db, config, logger = false }: AppDeps): Promise
     const edition = (await db.query<{ id: string; name: string; year: number }>(
       raw ? "SELECT id, name, year FROM competition_editions WHERE id = $1" : "SELECT id, name, year FROM competition_editions WHERE is_current",
       raw ? [raw] : [])).rows[0];
-    reply.header("Cache-Control", "public, max-age=60");
+    // Always revalidate: a visitor who has just registered must see their school immediately.
+    reply.header("Cache-Control", "no-cache");
     if (!edition) return { edition: null, total_schools: 0, total_students: 0, schools: [] };
     return { edition: { name: edition.name, year: edition.year }, ...(await listPublicRegisteredSchools(db, edition.id)) };
   });

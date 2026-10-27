@@ -41,7 +41,7 @@ Code: `src/pages/CompetitionRegistration.tsx` and `src/utils/schoolRegistrationS
 
 Code: `src/utils/registeredSchools.ts`. It reads `GET /api/registered-schools`: one row per school of the current edition with school
 code, name, district and student count, and nothing else (no contacts, bank details, statuses or ids). Rejected and withdrawn
-registrations are excluded; the response is cached for 60 seconds. The page shows names exactly as registrants typed them, so an admin
+registrations are excluded; the response is never served from a stale cache, so a newly registered school shows up immediately. The page shows names exactly as registrants typed them, so an admin
 should reject an abusive registration, which removes it from the list.
 
 ## Other pages
