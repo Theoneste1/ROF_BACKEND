@@ -22,7 +22,9 @@
     "dev:db": "tsx scripts/dev-pg.ts",
     "import:schools": "tsx scripts/import-schools.ts",
     "bootstrap": "tsx scripts/bootstrap.ts",
-    "smoke": "tsx scripts/smoke.ts"
+    "smoke": "tsx scripts/smoke.ts",
+    "gen:secret": "node scripts/gen-secret.mjs",
+    "cert:escape": "node scripts/escape-cert.mjs"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.1",
