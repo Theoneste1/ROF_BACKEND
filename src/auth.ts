@@ -29,13 +29,13 @@ export type Role = "viewer" | "admin" | "finance" | "super_admin";
 export type Permission =
   | "registrations:read" | "registrations:update" | "registrations:status"
   | "registrations:export" | "registrations:stats"
-  | "bank:read" | "bank:write" | "audit:read" | "users:manage";
+  | "bank:read" | "bank:write" | "audit:read" | "users:manage" | "registration:control";
 
 const PERMISSIONS: Record<Role, readonly Permission[]> = {
   viewer: ["registrations:read", "registrations:stats"],
-  admin: ["registrations:read", "registrations:update", "registrations:status", "registrations:export", "registrations:stats", "audit:read"],
+  admin: ["registrations:read", "registrations:update", "registrations:status", "registrations:export", "registrations:stats", "audit:read", "registration:control"],
   finance: ["registrations:read", "registrations:export", "registrations:stats", "bank:read", "bank:write"],
-  super_admin: ["registrations:read", "registrations:update", "registrations:status", "registrations:export", "registrations:stats", "bank:read", "bank:write", "audit:read", "users:manage"],
+  super_admin: ["registrations:read", "registrations:update", "registrations:status", "registrations:export", "registrations:stats", "bank:read", "bank:write", "audit:read", "users:manage", "registration:control"],
 };
 export const can = (role: Role, perm: Permission): boolean => PERMISSIONS[role]?.includes(perm) ?? false;
 export const isRole = (v: string): v is Role => v in PERMISSIONS;

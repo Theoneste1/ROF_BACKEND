@@ -33,7 +33,7 @@ afterAll(async () => { await app?.close(); await db?.close(); await server?.stop
 describe("pg driver adapter", () => {
   it("applied migrations and seeded locations over the wire", async () => {
     expect((await db.query("SELECT count(*)::int n FROM sectors")).rows[0]!.n).toBe(416);
-    expect((await db.query("SELECT name FROM schema_migrations")).rows).toEqual([{ name: "001_init.sql" }, { name: "002_cells_and_school_directory.sql" }, { name: "003_directory_district_level.sql" }]);
+    expect((await db.query("SELECT name FROM schema_migrations")).rows).toEqual([{ name: "001_init.sql" }, { name: "002_cells_and_school_directory.sql" }, { name: "003_directory_district_level.sql" }, { name: "004_registration_control.sql" }]);
   });
   it("saves a registration and returns correct rowCount/rows", async () => {
     const res = await app.inject({ method: "POST", url: "/api/school-registrations", payload: validPayload() as any });
