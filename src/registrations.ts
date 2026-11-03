@@ -246,6 +246,10 @@ export interface ListQuery {
   page: number; pageSize: number; q?: string; editionId?: string; province?: string; district?: string; sector?: string; cell?: string;
   schoolType?: string; status?: string; incomplete?: boolean; potentialDuplicates?: boolean; inDirectory?: boolean;
   createdFrom?: string; createdTo?: string; sort: string; order: "asc" | "desc";
+  /** Mathematics teacher has both a bank name and an account number (true), or is missing either (false). */
+  bankComplete?: boolean;
+  /** Only these registrations (the rows an administrator selected). */
+  ids?: string[];
 }
 
 const SORTS: Record<string, string> = {
@@ -262,6 +266,8 @@ const SEARCH_COLUMNS = [
   "(COALESCE(r.head_teacher_first_name,'') || ' ' || COALESCE(r.head_teacher_last_name,''))",
 ];
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const TEACHER_BANK_COMPLETE = "(COALESCE(r.teacher_bank_name, '') <> '' AND COALESCE(r.mathematics_teacher_account_number, '') <> '')";
 
 export function buildWhere(q: Partial<ListQuery>): { where: string; params: unknown[] } {
   const conds: string[] = [];
@@ -281,6 +287,8 @@ export function buildWhere(q: Partial<ListQuery>): { where: string; params: unkn
   if (q.createdFrom) conds.push(`r.created_at >= ${add(q.createdFrom)}`);
   if (q.createdTo) conds.push(`r.created_at < ${add(q.createdTo)}`);
   if (q.incomplete === true) conds.push(`(${[...REQUIRED_COLUMNS.map((c) => `r.${c} IS NULL`), "r.sector_id IS NULL"].join(" OR ")})`);
+  if (q.bankComplete !== undefined) conds.push(`${q.bankComplete ? "" : "NOT "}${TEACHER_BANK_COMPLETE}`);
+  if (q.ids) conds.push(`r.id = ANY(${add(q.ids)}::uuid[])`);
   if (q.potentialDuplicates === true) conds.push(`EXISTS (SELECT 1 FROM school_registrations o WHERE ${DUP_PREDICATE("r", "o")})`);
   if (q.q) {
     for (const token of q.q.trim().split(/\s+/).slice(0, 5)) {
@@ -312,6 +320,42 @@ export async function exportRows(db: Queryable, q: Partial<ListQuery>): Promise<
   const { where, params } = buildWhere(q);
   return (await db.query(
     `SELECT ${COLUMNS} ${JOINS} ${where} ORDER BY r.created_at, r.id LIMIT ${EXPORT_LIMIT}`, params)).rows;
+}
+
+export const EXPORT_BATCH_SIZE = 1000;
+
+export async function countRows(db: Queryable, q: Partial<ListQuery>): Promise<number> {
+  const { where, params } = buildWhere(q);
+  return Number((await db.query<{ n: string }>(`SELECT count(*) AS n ${JOINS} ${where}`, params)).rows[0]!.n);
+}
+
+/**
+ * Every matching row (up to `limit`), oldest first, fetched in batches with keyset pagination so a large export
+ * never holds the whole result in memory. The cursor is the timestamp as text: a JS Date would drop microseconds.
+ */
+export async function* iterateExportRows(
+  db: Queryable, q: Partial<ListQuery>, limit = EXPORT_LIMIT, batchSize = EXPORT_BATCH_SIZE,
+): AsyncGenerator<Record<string, any>[]> {
+  const { where, params } = buildWhere(q);
+  let cursor: { ts: string; id: string } | null = null;
+  let sent = 0;
+  while (sent < limit) {
+    const p = [...params];
+    let w = where;
+    if (cursor) {
+      p.push(cursor.ts, cursor.id);
+      w = `${where ? `${where} AND` : "WHERE"} (r.created_at, r.id) > ($${p.length - 1}::timestamptz, $${p.length}::uuid)`;
+    }
+    const rows = (await db.query(
+      `SELECT ${COLUMNS}, r.created_at::text AS cursor_ts ${JOINS} ${w} ORDER BY r.created_at, r.id
+       LIMIT ${Math.min(batchSize, limit - sent)}`, p)).rows;
+    if (rows.length === 0) return;
+    const last = rows[rows.length - 1]!;
+    cursor = { ts: last.cursor_ts, id: last.id };
+    sent += rows.length;
+    yield rows;
+    if (rows.length < batchSize) return;
+  }
 }
 
 export async function statistics(db: Queryable, editionId?: string) {

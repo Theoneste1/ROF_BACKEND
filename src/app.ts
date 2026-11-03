@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
+import { Readable } from "node:stream";
 import helmet from "@fastify/helmet";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
@@ -16,10 +17,11 @@ import {
   REGISTRATION_STATUSES, SCHOOL_TYPES, validateRegistration, validateRegistrationPatch, BANK_FIELDS,
 } from "./validation.js";
 import {
-  SORT_KEYS, UUID_RE, changeStatus, createRegistration, exportRows, findPotentialDuplicates, getRegistration,
+  EXPORT_LIMIT, SORT_KEYS, UUID_RE, changeStatus, countRows, createRegistration, exportRows, iterateExportRows, findPotentialDuplicates, getRegistration,
   listPublicRegisteredSchools, listRegistrations, searchDirectorySchools, shapeRegistration, statistics, updateRegistration, type BankMode, type ListQuery,
 } from "./registrations.js";
-import { toCsv, type CsvColumn } from "./csv.js";
+import { csvHeader, csvRow, toCsv, type CsvColumn } from "./csv.js";
+import { exportCatalogue, resolveExportFields } from "./exportFields.js";
 
 export interface AppDeps { db: Db; config: Config; logger?: boolean }
 
@@ -240,7 +242,7 @@ export async function buildApp({ db, config, logger = false }: AppDeps): Promise
       q: str("q")?.slice(0, 100), editionId, province: str("province"), district: str("district"), sector: str("sector"), cell: str("cell"),
       schoolType: oneOf("school_type", SCHOOL_TYPES), status: oneOf("status", REGISTRATION_STATUSES),
       incomplete: bool("incomplete"), potentialDuplicates: bool("potential_duplicates"), inDirectory: bool("in_directory"),
-      createdFrom: date("created_from"), createdTo: date("created_to"),
+      createdFrom: date("created_from"), createdTo: date("created_to"), bankComplete: bool("bank_complete"),
       sort: oneOf("sort", SORT_KEYS) ?? "created_at", order: (oneOf("order", ["asc", "desc"]) as "asc" | "desc") ?? "desc",
     };
     // Accept the form's labels ("Southern") as well as official names and ids.
@@ -321,6 +323,87 @@ export async function buildApp({ db, config, logger = false }: AppDeps): Promise
     return reply.header("Content-Type", "text/csv; charset=utf-8")
       .header("Content-Disposition", `attachment; filename="school-registrations-${new Date().toISOString().slice(0, 10)}.csv"`)
       .send(csv);
+  });
+
+  // ----- admin: custom export (chosen fields and order, filters, selected rows) -----
+  const EXPORT_FILTER_KEYS = [
+    "q", "edition_id", "province", "district", "sector", "cell", "school_type", "status",
+    "incomplete", "potential_duplicates", "in_directory", "created_from", "created_to", "bank_complete",
+  ];
+  const MAX_EXPORT_IDS = 5000;
+  const PREVIEW_ROWS = 10;
+
+  app.get("/api/school-registrations/export-fields", { preHandler: guard("registrations:export") }, async (req) => ({
+    categories: exportCatalogue(req.admin!.role),
+  }));
+
+  // Body: { fields: string[], filters?: {...list filters}, ids?: uuid[], format?: "csv" | "json", preview?: boolean, excel_safe?: boolean }.
+  // Field keys are checked against the catalogue here, whatever the client shows; bank fields need bank:read.
+  app.post("/api/school-registrations/export", { preHandler: guard("registrations:export"), bodyLimit: 512 * 1024 }, async (req, reply) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const resolved = resolveExportFields(body.fields, req.admin!.role);
+    if (!resolved.ok) {
+      if (resolved.status === 403) throw new ApiError(403, "forbidden", resolved.message);
+      throw validationError({ fields: resolved.message });
+    }
+    const fields = resolved.fields;
+    const errors: Record<string, string> = {};
+    const format = body.format ?? "csv";
+    if (format !== "csv" && format !== "json") errors.format = "format must be csv or json.";
+    if (body.preview !== undefined && typeof body.preview !== "boolean") errors.preview = "preview must be true or false.";
+    if (body.excel_safe !== undefined && typeof body.excel_safe !== "boolean") errors.excel_safe = "excel_safe must be true or false.";
+    const rawFilters: Record<string, string> = {};
+    if (body.filters !== undefined && body.filters !== null) {
+      if (typeof body.filters !== "object" || Array.isArray(body.filters)) errors.filters = "filters must be an object.";
+      else for (const [k, v] of Object.entries(body.filters)) {
+        if (!EXPORT_FILTER_KEYS.includes(k)) errors[`filters.${k}`] = "Unknown filter.";
+        else if (typeof v === "string" || typeof v === "boolean") rawFilters[k] = String(v);
+        else if (v !== null) errors[`filters.${k}`] = "Filter values must be text or true/false.";
+      }
+    }
+    let ids: string[] | undefined;
+    if (body.ids !== undefined && body.ids !== null) {
+      if (!Array.isArray(body.ids) || body.ids.length === 0 || body.ids.length > MAX_EXPORT_IDS || !body.ids.every((v) => typeof v === "string" && UUID_RE.test(v)))
+        errors.ids = `ids must be a list of 1 to ${MAX_EXPORT_IDS} registration ids.`;
+      else ids = [...new Set(body.ids as string[])];
+    }
+    if (Object.keys(errors).length) throw validationError(errors);
+    const q: ListQuery = { ...parseListQuery(rawFilters), ids };
+
+    const sensitive = fields.some((f) => f.sensitive);
+    const total = await countRows(db, q);
+    const columns = fields.map((f) => ({ key: f.key, label: f.label }));
+    const filters = Object.fromEntries(Object.entries(q).filter(([k, v]) => v !== undefined && !["page", "pageSize", "sort", "order", "ids"].includes(k)));
+    const audit = { total, format, fields: fields.map((f) => f.key), include_bank: sensitive, selected: ids?.length ?? null, filters };
+
+    if (body.preview === true) {
+      const first: Record<string, any>[] = (await iterateExportRows(db, q, PREVIEW_ROWS).next()).value ?? [];
+      if (sensitive) await writeAudit(db, actorOf(req), "registration.export_previewed", "school_registration", null, audit);
+      return { total, columns, rows: first.map((r) => fields.map((f) => f.value(r) ?? null)) };
+    }
+
+    const rows = Math.min(total, EXPORT_LIMIT);
+    await writeAudit(db, actorOf(req), "registration.exported", "school_registration", null, { ...audit, rows });
+    const excelSafe = body.excel_safe !== false;
+    const csvColumns: CsvColumn[] = fields.map((f) => ({ header: f.label, value: f.value, text: f.text }));
+    async function* chunks(): AsyncGenerator<string> {
+      if (format === "csv") yield "\uFEFF" + csvHeader(csvColumns) + "\r\n";
+      else yield `{"total":${total},"columns":${JSON.stringify(columns)},"rows":[`;
+      let first = true;
+      for await (const batch of iterateExportRows(db, q)) {
+        if (format === "csv") yield batch.map((r) => csvRow(csvColumns, r, excelSafe) + "\r\n").join("");
+        else {
+          yield (first ? "" : ",") + batch.map((r) => JSON.stringify(fields.map((f) => f.value(r) ?? null))).join(",");
+          first = false;
+        }
+      }
+      if (format === "json") yield "]}";
+    }
+    const stamp = new Date().toISOString().slice(0, 10);
+    return reply
+      .header("Content-Type", format === "csv" ? "text/csv; charset=utf-8" : "application/json; charset=utf-8")
+      .header("Content-Disposition", `attachment; filename="registrations-export-${stamp}.${format}"`)
+      .send(Readable.from(chunks()));
   });
 
   // ----- admin: single registration -----

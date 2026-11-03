@@ -16,8 +16,11 @@ export function csvCell(raw: unknown, opts: { text?: boolean; excelSafe: boolean
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
+export const csvHeader = (columns: CsvColumn[]): string => columns.map((c) => csvCell(c.header, { excelSafe: false })).join(",");
+export const csvRow = (columns: CsvColumn[], row: Record<string, unknown>, excelSafe: boolean): string =>
+  columns.map((c) => csvCell(c.value(row), { text: c.text, excelSafe })).join(",");
+
 export function toCsv(columns: CsvColumn[], rows: Record<string, unknown>[], excelSafe: boolean): string {
-  const lines = [columns.map((c) => csvCell(c.header, { excelSafe: false })).join(",")];
-  for (const row of rows) lines.push(columns.map((c) => csvCell(c.value(row), { text: c.text, excelSafe })).join(","));
+  const lines = [csvHeader(columns), ...rows.map((row) => csvRow(columns, row, excelSafe))];
   return "\uFEFF" + lines.join("\r\n") + "\r\n";
 }
