@@ -76,7 +76,7 @@ describe("migrations", () => {
   it("apply cleanly on an empty database and are idempotent on re-run", async () => {
     const db = pgliteDb();
     const first = await runMigrations(db);
-    expect(first).toEqual(["001_init.sql", "002_cells_and_school_directory.sql", "003_directory_district_level.sql"]);
+    expect(first).toEqual(["001_init.sql", "002_cells_and_school_directory.sql", "003_directory_district_level.sql", "004_registration_control.sql"]);
     expect(await runMigrations(db)).toEqual([]);
     const tables = (await db.query<{ tablename: string }>("SELECT tablename FROM pg_tables WHERE schemaname='public'")).rows.map((r) => r.tablename);
     for (const t of ["competition_editions", "provinces", "districts", "sectors", "schools", "school_registrations", "admin_users", "audit_log", "schema_migrations", "cells", "school_directory"])

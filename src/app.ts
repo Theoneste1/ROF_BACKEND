@@ -22,6 +22,9 @@ import {
 } from "./registrations.js";
 import { csvHeader, csvRow, toCsv, type CsvColumn } from "./csv.js";
 import { exportCatalogue, resolveExportFields } from "./exportFields.js";
+import {
+  changeRegistrationControl, publicRegistrationStatus, registrationControl, requireOpenEdition, validateRegistrationControlChange,
+} from "./registrationControl.js";
 
 export interface AppDeps { db: Db; config: Config; logger?: boolean }
 
@@ -164,6 +167,15 @@ export async function buildApp({ db, config, logger = false }: AppDeps): Promise
     return ed;
   });
 
+  // Whether the registration form accepts submissions right now. Never cached, so closing takes effect immediately.
+  app.get("/api/registration-status", { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async () => publicRegistrationStatus(db));
+
+  // ----- admin: registration control -----
+  app.get("/api/admin/registration-control", { preHandler: guard("registrations:read") }, async () => registrationControl(db));
+
+  app.patch("/api/admin/registration-control", { preHandler: guard("registration:control") }, async (req) =>
+    changeRegistrationControl(db, validateRegistrationControlChange(req.body), actorOf(req)));
+
   // ----- authentication -----
   app.post("/api/auth/login", { config: { rateLimit: { max: config.loginRateLimitMax, timeWindow: "1 minute" } } }, async (req, reply) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -206,6 +218,8 @@ export async function buildApp({ db, config, logger = false }: AppDeps): Promise
     if (body && typeof body === "object" && typeof (body as any).website === "string" && (body as any).website.trim() !== "") {
       return reply.status(202).send({ status: "received" });
     }
+    // While registration is closed, say so before anything else (createRegistration checks again when it stores the row).
+    await requireOpenEdition(db);
     const keyHeader = req.headers["idempotency-key"];
     const key = Array.isArray(keyHeader) ? keyHeader[0] : keyHeader;
     if (key !== undefined && !IDEMPOTENCY_KEY_RE.test(key))

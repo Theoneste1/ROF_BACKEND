@@ -4,6 +4,7 @@ import type { Db, Queryable } from "./db.js";
 import { isUniqueViolation } from "./db.js";
 import { ApiError, validationError } from "./errors.js";
 import { writeAudit, type Actor } from "./audit.js";
+import { requireOpenEdition } from "./registrationControl.js";
 import { LocationService, normKey, type ResolvedLocation } from "./locations.js";
 import {
   BANK_FIELDS, FIELD_SPECS, LOCATION_FIELDS, REGISTRATION_STATUSES,
@@ -89,9 +90,8 @@ export async function createRegistration(
   const { data, cellId } = await applyDirectoryChoice(db, input, loc.value);
   if (!data.school_name || !data.school_code) throw validationError({ school_name: "School name is required.", school_code: "School code is required." });
 
-  const ed = (await db.query<{ id: string; year: number; name: string }>(
-    "SELECT id, year, name FROM competition_editions WHERE is_current AND registration_open")).rows[0];
-  if (!ed) throw new ApiError(409, "registration_closed", "Registration is not currently open.");
+  // Rejects with 409 registration_closed (and the administrator's message) unless registration is open right now.
+  const ed = await requireOpenEdition(db);
 
   const fingerprint = fingerprintOf(ed.id, data);
   const actor: Actor = { id: null, label: "public", ip: meta.ip };

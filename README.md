@@ -149,12 +149,13 @@ Admin routes need `Authorization: Bearer <token>`.
 
 | Method & path | Description |
 |---|---|
-| `POST /api/school-registrations` | Submit a registration. `201` new / `200` replay → `{ message, replayed, registration: { id, registration_reference, status, total_estimated_students, competition_edition, created_at } }`. `422` with per-field `fields`; `409 registration_closed`; `409 idempotency_key_reused`; `429` rate-limited. A non-empty `website` field (honeypot) is silently dropped with `202`. |
+| `POST /api/school-registrations` | Submit a registration. `201` new / `200` replay → `{ message, replayed, registration: { id, registration_reference, status, total_estimated_students, competition_edition, created_at } }`. `422` with per-field `fields`; `409 registration_closed` (its `message` is the administrator's closed message); `409 idempotency_key_reused`; `429` rate-limited. A non-empty `website` field (honeypot) is silently dropped with `202`. |
 | `GET /api/locations` | Province → district → sector tree (ids + names) for dropdowns. |
 | `GET /api/locations/sectors/:sectorId/cells` | Cells of one sector. |
 | `GET /api/registered-schools` | Public list for the website's "Registered Schools" page: one row per school of the current edition (or `?edition_id=`) with `school_code`, `school_name`, `district`, `student_count` (latest registration; rejected/withdrawn excluded) plus totals. No personal data; always revalidated (never served stale); 60 requests/min per IP. Note it shows names as registrants typed them, so admins should reject abusive entries. |
 | `GET /api/schools` | School pick-list for a sector: schools recorded for it plus those known only at district level (+ optional `cell_id`, `q`); see the cascade section. |
 | `GET /api/competition-editions/current` | Current edition and whether registration is open. |
+| `GET /api/registration-status` | What the registration form needs: `{ status: open\|closed\|scheduled, opens_at, closes_at, message, edition }`. Never cached, so a close in the Admin Portal takes effect immediately; 120 requests/min per IP. |
 | `GET /health` | Liveness + DB check. |
 | `POST /api/auth/login` | `{ email, password }` → `{ token, expires_in, user }`. 5 failures lock the account for 15 min. |
 
@@ -178,6 +179,8 @@ Unknown or system fields (`status`, `id`, totals, …) are ignored. Phones are n
 | `GET /api/school-registrations/export` | export | CSV honouring the list filters. `include_bank=true` needs `bank:read`. `excel_safe` (default `true`) writes codes/phones/accounts as `="0123"` so Excel keeps leading zeros; `false` gives raw values. Formula-injection characters are neutralised; UTF-8 BOM included. Audited. |
 | `GET /api/school-registrations/statistics` | stats | Aggregates only (no personal data): totals, per-group student sums, by status/province/district/school type, incomplete & duplicate counts. Defaults to the current edition; `edition_id=all` for everything. Student totals exclude rejected/withdrawn. |
 | `GET /api/school-registrations/:id/audit` | audit | Audit entries for a registration. |
+| `GET /api/admin/registration-control` | read | Registration control for the current edition: `status`, `registration_open`, `opens_at`, `closes_at`, `closed_message` (null = default), `default_closed_message`, `total_registrations`, `last_changed_at`, `last_changed_by`. |
+| `PATCH /api/admin/registration-control` | registration:control | Any of `{ action: "open"\|"close", opens_at, closes_at, closed_message }` (times need a zone offset, e.g. `2026-11-30T17:00:00+02:00`; `null` clears). See *Opening and closing registration*. Audited. |
 | `GET /api/auth/me` | any | Current user. |
 
 ### Roles and permissions
@@ -185,12 +188,27 @@ Unknown or system fields (`status`, `id`, totals, …) are ignored. Phones are n
 | Role | Can do |
 |---|---|
 | `viewer` | read (no bank data), statistics |
-| `admin` | read, edit non-bank fields, change status, export (no bank data), statistics, audit |
+| `admin` | read, edit non-bank fields, change status, export (no bank data), statistics, audit, open/close registration |
 | `finance` | read incl. masked/revealed bank data, edit bank fields, export incl. bank data, statistics |
 | `super_admin` | everything |
 
 Roles are always read from the database, never trusted from the token. Bumping `admin_users.token_version` or setting
 `is_active = false` revokes tokens immediately. Bank account numbers are masked in lists/details (`*********111`), absent for roles without `bank:read`, excluded from default exports, and never written to logs or the audit trail.
+
+### Opening and closing registration
+
+The current edition accepts registrations according to one rule, worked out on every request (no background job):
+
+| Status | When |
+|---|---|
+| closed | `registration_open` is false, or `registration_closes_at` has passed |
+| scheduled | `registration_open` is true and `registration_opens_at` is still ahead |
+| open | otherwise |
+
+Closing always wins: `action: "close"` turns the switch off and keeps the times, which have no effect until registration is opened again.
+`action: "open"` turns the switch on and clears the opening time and a closing time that has passed. Setting `opens_at` arms the switch,
+so registration opens by itself at that time. Every change is written to `audit_log` (`registration.opened`, `registration.closed`,
+`registration.settings_updated`); existing registrations are never touched.
 
 ## Security summary
 
@@ -233,7 +251,7 @@ sites, so run this on any Node host behind HTTPS. [`render.yaml`](render.yaml) i
 | `self-signed certificate in certificate chain` | Set `DATABASE_SSL_CA` to Supabase's certificate (last resort: `DATABASE_SSL_REJECT_UNAUTHORIZED=false`, which encrypts but does not verify). |
 | `ENOTFOUND` / `ETIMEDOUT` / `ENETUNREACH` to the database | Use the **Session pooler** string, not the direct connection. |
 | Browser says "blocked by CORS" / the form says it couldn't load the provinces | The page's origin is not allowed. `localhost`, `127.0.0.1` and this site's Netlify previews are allowed by default; for any other address add the exact origin (no trailing slash) to `CORS_ORIGINS`. |
-| Registration returns `409 registration_closed` | No open, current edition: run `npm run bootstrap`. |
+| Registration returns `409 registration_closed` | Registration is closed in the Admin Portal (Registration Control), its closing time has passed, or there is no current edition (run `npm run bootstrap`). |
 | `Missing required environment variables` at start | Set `DATABASE_URL` and `JWT_SECRET` (≥ 32 chars) on the host. |
 | `Migration … was modified after being applied` | Never edit an applied migration; add a new numbered file. |
 
